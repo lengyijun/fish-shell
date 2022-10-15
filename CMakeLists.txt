@@ -27,7 +27,10 @@ endif()
 include(cmake/Rust.cmake)
 
 # Error out when linking statically, it doesn't work.
-if (CMAKE_EXE_LINKER_FLAGS MATCHES ".*-static.*")
+# This can be conditionally enabled only for the purpose of creating an AppImage.
+option(FISH_ALLOW_UNSUPPORTED_STATIC_LINKING "Allow static linking" OFF)
+mark_as_advanced(FORCE FISH_ALLOW_UNSUPPORTED_STATIC_LINKING)
+if (NOT FISH_ALLOW_UNSUPPORTED_STATIC_LINKING AND CMAKE_EXE_LINKER_FLAGS MATCHES ".*-static.*")
     message(FATAL_ERROR "Fish does not support static linking")
 endif()
 
