@@ -3461,7 +3461,7 @@ void reader_data_t::handle_readline_command(readline_cmd_t c, readline_loop_stat
                     outp.set_color(parse_color(*fish_color_cancel, false),
                                    parse_color(*fish_color_cancel, true));
                 }
-                outp.writestr(L"^C");
+                // outp.writestr(L"^C");
                 outp.set_color(rgb_color_t::reset(), rgb_color_t::reset());
 
                 // We print a newline last so the prompt_sp hack doesn't get us.
