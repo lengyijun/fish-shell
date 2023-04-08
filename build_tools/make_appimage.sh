@@ -32,7 +32,7 @@ rm -rf "$APP_DIR/usr/share/doc/fish"
 mkdir -p "$APP_DIR/usr/share/metainfo/"
 cp "$ROOT_DIR/fish.appdata.xml" "$APP_DIR/usr/share/metainfo/"
 
-cp -r "$FISH_NCURSES_ROOT/share/terminfo" "$APP_DIR/usr/share/"
+#cp -r "$FISH_NCURSES_ROOT/share/terminfo" "$APP_DIR/usr/share/"
 
 cat << 'EOF' > "$APP_DIR/AppRun"
 #!/bin/bash
