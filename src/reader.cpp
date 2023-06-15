@@ -1207,6 +1207,47 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
         full_line = combine_command_and_autosuggestion(cmd_line->text(), autosuggestion.text);
     }
 
+    if (full_line.empty()){
+        wcstring last_cmd  = history->item_at_index(1).str();
+        if(last_cmd.find(L"mkdir ")==0){
+            full_line = L"cd " + last_cmd.substr(6);
+            autosuggestion.text= full_line;
+        } else if (last_cmd.find(L"git clone ")==0){
+            wcstring url = last_cmd.substr(10);
+            size_t pos = 0; // Start position
+            while ( (pos = url.find (L"--depth=1", 0)) != wcstring::npos) { // Find next occurrence
+              url.replace (pos, 9, L""); // Replace 5 characters starting from pos with "Hi"
+            }
+            // Trim from end (in place)
+            url.erase(url.find_last_not_of(L" \t\n\r") + 1); // Erase all characters after the last non-whitespace character
+
+            const wchar_t delimiter[] = L"/";
+            wchar_t* token_backup;
+            wchar_t* token;
+            wchar_t* ptr = const_cast<wchar_t*>(url.c_str());
+
+            // Use wcstok() to split the string
+            while ((token = wcstok(ptr, delimiter, &ptr)) != NULL) {
+                token_backup = token;
+            }
+            wcstring repo_dot_git = wcstring(token_backup);
+            int length = repo_dot_git.length();
+            if (repo_dot_git.substr(length - 4) == L".git") {
+                full_line = L"cd " + repo_dot_git.substr(0, length - 4);
+                autosuggestion.text= full_line;
+            } else {
+                full_line = L"cd " + repo_dot_git;
+                autosuggestion.text= full_line;
+            }
+        } else if(last_cmd.find(L"git add ")==0){
+            full_line = L"git commit";
+            autosuggestion.text= full_line;
+        } else if(last_cmd.find(L"touch ")==0){
+            full_line = L"vi " + last_cmd.substr(6);
+            autosuggestion.text= full_line;
+        }
+    }
+
     // Copy the colors and extend them with autosuggestion color.
     std::vector<highlight_spec_t> colors = data.colors;
 
