@@ -1245,6 +1245,12 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
         } else if(last_cmd.find(L"touch ")==0){
             full_line = L"vi " + last_cmd.substr(6);
             autosuggestion.text= full_line;
+        } else if(last_cmd.find(L"vi ")==0){
+            auto file_name = last_cmd.substr(3);
+            if(file_name.find(L".rs")!=wcstring::npos){
+                full_line = L"rustc " + file_name;
+                autosuggestion.text= full_line;
+            }
         }
     }
 
