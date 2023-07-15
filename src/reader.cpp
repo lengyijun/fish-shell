@@ -2125,6 +2125,12 @@ static std::function<autosuggestion_t(void)> get_autosuggestion_performer(
             // Skip items with newlines because they make terrible autosuggestions.
             if (item.str().find(L'\n') != wcstring::npos) continue;
 
+            // skip `cd ../`
+            if (item.str()== (L"cd ../")) continue;
+            if (item.str()== (L"cd ..")) continue;
+            if (item.str()== (L"cd ../../")) continue;
+            if (item.str()== (L"cd ../..")) continue;
+
             if (autosuggest_validate_from_history(item, working_directory, ctx)) {
                 // The command autosuggestion was handled specially, so we're done.
                 // History items are case-sensitive, see #3978.
