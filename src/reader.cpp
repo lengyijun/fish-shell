@@ -1212,6 +1212,9 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
         if(last_cmd.find(L"mkdir ")==0){
             full_line = L"cd " + last_cmd.substr(6);
             autosuggestion.text= full_line;
+        } else if (last_cmd.find(L"cargo new ")==0){
+            full_line = L"cd " + last_cmd.substr(10);
+            autosuggestion.text= full_line;
         } else if (last_cmd.find(L"git clone ")==0){
             wcstring url = last_cmd.substr(10);
             size_t pos = 0; // Start position
