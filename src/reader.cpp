@@ -1257,6 +1257,45 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
         } else if(last_cmd.find(L"ssh-copy-id ")==0){
             full_line = L"ssh " + last_cmd.substr(12);
             autosuggestion.text= full_line;
+        } else if(last_cmd.find(L"scp ")==0){
+            bool is_dir = last_cmd.find(L"scp -r ") == 0;
+            wcstring parameters;
+            if(is_dir){
+                parameters = last_cmd.substr(7);
+            }else {
+                parameters = last_cmd.substr(4);
+            }
+            const wchar_t delimiter[] = L" ";
+            wchar_t* ptr = const_cast<wchar_t*>(parameters.c_str());
+
+            wchar_t* parameter1 = wcstok(ptr, delimiter, &ptr);
+            wchar_t* parameter2 = wcstok(ptr, delimiter, &ptr);
+
+            if (parameter1 != NULL && parameter2 != NULL ){
+                wcstring to = wcstring(parameter2);
+                if(to.find(L":")!=wcstring::npos){
+                    const wchar_t delimiter[] = L":";
+                    wchar_t* ptr = const_cast<wchar_t*>(to.c_str());
+
+                    wchar_t* hostname = wcstok(ptr, delimiter, &ptr);
+                    full_line = L"ssh " + wcstring(hostname);
+                    autosuggestion.text= full_line;
+                } else {
+                    if(is_dir){
+                        wcstring from = wcstring(parameter1);
+                        if(from.find(L":")!=wcstring::npos){
+                            if ( to == L".") {
+                                // TODO: get dir name
+
+                            } else {
+                                full_line = L"cd " + to;
+                                autosuggestion.text= full_line;
+                            }
+                        }
+                    }
+                }
+            }
+
         }
     }
 
