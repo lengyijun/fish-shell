@@ -1266,6 +1266,9 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
         } else if(last_cmd.find(L"ssh-copy-id ")==0){
             full_line = L"ssh " + last_cmd.substr(12);
             autosuggestion.text= full_line;
+        } else if(last_cmd.find(L"chezmoi add ")==0 || last_cmd.find(L"chezmoi re-add") == 0){
+            full_line = L"chezmoi cd";
+            autosuggestion.text= full_line;
         } else if(last_cmd.find(L"scp ")==0){
             bool is_dir = last_cmd.find(L"scp -r ") == 0;
             wcstring parameters;
