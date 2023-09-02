@@ -1259,6 +1259,9 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
             }else if(file_name.find(L".c")!=wcstring::npos){
                 full_line = L"gcc " + file_name;
                 autosuggestion.text= full_line;
+            }else if(file_name.find(L".dot")!=wcstring::npos){
+                full_line = L"tod " + file_name;
+                autosuggestion.text= full_line;
             }
         } else if(last_cmd.find(L"gcc ")==0){
             full_line = L"./a.out";
