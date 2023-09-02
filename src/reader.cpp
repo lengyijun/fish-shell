@@ -1263,6 +1263,14 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
                 full_line = L"tod " + file_name;
                 autosuggestion.text= full_line;
             }
+        } else if(last_cmd.find(L"tod ")==0){
+            auto file_name = last_cmd.substr(4);
+            size_t pos = 0; // Start position
+            while ( (pos = file_name.find (L".dot", 0)) != wcstring::npos) { // Find next occurrence
+              file_name.replace (pos, 4, L".png"); // Replace 5 characters starting from pos with "Hi"
+            }
+            full_line = L"wezterm imgcat " + file_name;
+            autosuggestion.text= full_line;
         } else if(last_cmd.find(L"gcc ")==0){
             full_line = L"./a.out";
             autosuggestion.text= full_line;
