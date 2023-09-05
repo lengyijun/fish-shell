@@ -1274,6 +1274,11 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
         } else if(last_cmd.find(L"gcc ")==0){
             full_line = L"./a.out";
             autosuggestion.text= full_line;
+        } else if(last_cmd.find(L"rustc ")==0){
+            auto file_name = last_cmd.substr(6);
+            auto length = file_name.length();
+            full_line = L"./" + file_name.substr(0, length-3);
+            autosuggestion.text= full_line;
         } else if(last_cmd.find(L"ssh-copy-id ")==0){
             full_line = L"ssh " + last_cmd.substr(12);
             autosuggestion.text= full_line;
