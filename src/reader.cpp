@@ -1256,6 +1256,9 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
             }else if(file_name.find(L".lua")!=wcstring::npos){
                 full_line = L"lua " + file_name;
                 autosuggestion.text= full_line;
+            }else if(file_name.find(L".cpp")!=wcstring::npos){
+                full_line = L"g++ " + file_name;
+                autosuggestion.text= full_line;
             }else if(file_name.find(L".c")!=wcstring::npos){
                 full_line = L"gcc " + file_name;
                 autosuggestion.text= full_line;
