@@ -1265,6 +1265,9 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
             }else if(file_name.find(L".dot")!=wcstring::npos){
                 full_line = L"tod " + file_name;
                 autosuggestion.text= full_line;
+            }else if(file_name.find(L".S")!=wcstring::npos){
+                full_line = L"riscv64-linux-gnu-gcc -ggdb -static " + file_name;
+                autosuggestion.text= full_line;
             }
         } else if(last_cmd.find(L"tod ")==0){
             auto file_name = last_cmd.substr(4);
@@ -1327,6 +1330,53 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
                 }
             }
 
+        }else if (last_cmd.find(L"riscv64-linux-gnu-gcc -ggdb -static ")==0) {
+            full_line = L"qemu-riscv64-static -g 8888 a.out";
+            autosuggestion.text= full_line;
+        }else if (last_cmd.find(L"riscv64-linux-gnu-gcc -static ") == 0) {
+            full_line = L"qemu-riscv64-static ./a.out";
+            autosuggestion.text= full_line;
+        }else if (last_cmd.find(L"riscv64-linux-gnu-gcc ") == 0) {
+            // try split with -o
+            const wchar_t delimiter[] = L"-o";
+            wchar_t* token_backup = NULL;
+            wchar_t* token;
+            wchar_t* ptr = const_cast<wchar_t*>(last_cmd.c_str());
+
+            // Use wcstok() to split the string
+            while ((token = wcstok(ptr, delimiter, &ptr)) != NULL) {
+                token_backup = token;
+            }
+            if (token_backup != NULL){
+                wcstring dot_S_file = wcstring(token_backup);
+                full_line = L"riscv64-linux-gnu-gcc -ggdb -static " + dot_S_file;
+                autosuggestion.text= full_line;
+            }
+        }else if(
+                last_cmd.find(L"cargo run --features=build-bin --release -- --optimize ") != wcstring::npos ||
+                last_cmd.find(L"cargo run --features=build-bin -- ") != wcstring::npos
+            ) {
+            // split '>'
+            const wchar_t delimiter[] = L">";
+            wchar_t* token_backup;
+            wchar_t* token;
+            wchar_t* ptr = const_cast<wchar_t*>(last_cmd.c_str());
+
+            // Use wcstok() to split the string
+            while ((token = wcstok(ptr, delimiter, &ptr)) != NULL) {
+                token_backup = token;
+            }
+            wcstring dot_S_file = wcstring(token_backup);
+            full_line = L"riscv64-linux-gnu-gcc -ggdb -static " + dot_S_file;
+            autosuggestion.text= full_line;
+        }
+    }
+
+    if (full_line.empty()){
+        wcstring last_cmd  = history->item_at_index(1).str();
+        if (last_cmd.find(L"riscv64-linux-gnu-gcc ") == 0 && last_cmd.find(L" .S") != wcstring::npos) {
+            full_line = L"riscv64-linux-gnu-gcc -ggdb -static /tmp/g.S";
+            autosuggestion.text= full_line;
         }
     }
 
