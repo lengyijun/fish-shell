@@ -1271,6 +1271,9 @@ void reader_data_t::paint_layout(const wchar_t *reason) {
             }else if(file_name.find(L".lean")!=wcstring::npos){
                 full_line = L"lean " + file_name;
                 autosuggestion.text= full_line;
+            }else if(file_name.find(L".mlw")!=wcstring::npos){
+                full_line = L"why3 ide " + file_name;
+                autosuggestion.text= full_line;
             }
         } else if(last_cmd.find(L"tod ")==0){
             auto file_name = last_cmd.substr(4);
