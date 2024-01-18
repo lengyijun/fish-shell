@@ -4289,6 +4289,15 @@ fn get_autosuggestion_performer(
                 continue;
             }
 
+            if item.str() == "cd .."
+                || item.str() == "cd ../"
+                || item.str() == "cd ../.."
+                || item.str() == "cd ../../"
+                || item.str() == "git status"
+            {
+                continue;
+            }
+
             if autosuggest_validate_from_history(item, &working_directory, &ctx) {
                 // The command autosuggestion was handled specially, so we're done.
                 // History items are case-sensitive, see #3978.
