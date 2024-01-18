@@ -2316,6 +2316,8 @@ impl<'a> Reader<'a> {
                     Edit::new(0..self.command_line_len(), L!("").to_owned()),
                 );
 
+                self.screen
+                    .reset_abandoning_line(usize::try_from(termsize_last().width).unwrap());
                 // Post fish_cancel.
                 event::fire_generic(self.parser, L!("fish_cancel").to_owned(), vec![]);
             }
