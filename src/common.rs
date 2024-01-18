@@ -1321,11 +1321,13 @@ pub fn fish_setlocale() {
         OMITTED_NEWLINE_STR.store(LL!("^J"));
         OBFUSCATION_READ_CHAR.store(u32::from('*'), Ordering::Relaxed);
     } else {
+        /*
         if can_be_encoded('\u{23CE}') {
             OMITTED_NEWLINE_STR.store(LL!("\u{23CE}")); // "return symbol" (⏎)
         } else {
             OMITTED_NEWLINE_STR.store(LL!("^J"));
         }
+         */
         OBFUSCATION_READ_CHAR.store(
             u32::from(if can_be_encoded('\u{25CF}') {
                 '\u{25CF}' // "black circle"
