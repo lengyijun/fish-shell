@@ -38,6 +38,7 @@ use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU8};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+use widestring::utf32str;
 
 use errno::{errno, Errno};
 
@@ -1477,12 +1478,80 @@ impl<'a> Reader<'a> {
         let data = &self.data.rendered_layout;
         let cmd_line = &self.data.command_line;
 
-        let full_line = if self.conf.in_silent_mode {
+        let mut full_line = if self.conf.in_silent_mode {
             wstr::from_char_slice(&[get_obfuscation_read_char()]).repeat(cmd_line.len())
         } else {
             // Combine the command and autosuggestion into one string.
             combine_command_and_autosuggestion(cmd_line.text(), &self.autosuggestion.text)
         };
+
+        if full_line.is_empty()
+            && let Some(item) = self.history.item_at_index(1)
+        {
+            if item.str().starts_with("mkdir ") {
+                full_line = WString::from(utf32str!("cd ")) + &item.str()[6..];
+                self.autosuggestion.text = full_line.clone();
+            } else if item.str().starts_with("cargo new ") {
+                full_line = WString::from(utf32str!("cd ")) + &item.str()[10..];
+                self.autosuggestion.text = full_line.clone();
+            } else if item.str().starts_with("git clone ") {
+                let x = item.str().replace(utf32str!("--depth=1"), utf32str!(""));
+                let x: String = Into::<&[char]>::into(x.trim()).iter().collect();
+                if let Some((_, y)) = x.rsplit_once(' ') {
+                    if y.starts_with("https://") {
+                        if let Some((_, z)) = y.rsplit_once('/') {
+                            full_line = WString::from(utf32str!("cd ")) + z;
+                            self.autosuggestion.text = full_line.clone();
+                        }
+                    } else if y.starts_with("git@") {
+                        if let Some((_, z)) = y.rsplit_once('/') {
+                            full_line = WString::from(utf32str!("cd ")) + &z[0..z.len() - 4];
+                            self.autosuggestion.text = full_line.clone();
+                        }
+                    } else {
+                        full_line = WString::from(utf32str!("cd ")) + y;
+                        self.autosuggestion.text = full_line.clone();
+                    };
+                }
+            } else if item.str().starts_with("git add ") {
+                full_line = WString::from(utf32str!("git commit"));
+                self.autosuggestion.text = full_line.clone();
+            } else if item.str().starts_with("touch ") {
+                full_line = WString::from(utf32str!("vi ")) + &item.str()[6..];
+                self.autosuggestion.text = full_line.clone();
+            } else if item.str().starts_with("vi ") {
+                let file_name = &item.str()[3..];
+                if file_name.ends_with(".rs") {
+                    full_line = WString::from(utf32str!("rustc ")) + file_name;
+                    self.autosuggestion.text = full_line.clone();
+                } else if file_name.ends_with(".lua") {
+                    full_line = WString::from(utf32str!("lua ")) + file_name;
+                    self.autosuggestion.text = full_line.clone();
+                } else if file_name.ends_with(".cpp") {
+                    full_line = WString::from(utf32str!("g++ ")) + file_name;
+                    self.autosuggestion.text = full_line.clone();
+                } else if file_name.ends_with(".c") {
+                    full_line = WString::from(utf32str!("gcc ")) + file_name;
+                    self.autosuggestion.text = full_line.clone();
+                } else if file_name.ends_with(".dot") {
+                    full_line = WString::from(utf32str!("tod ")) + file_name;
+                    self.autosuggestion.text = full_line.clone();
+                } else if file_name.ends_with(".lean") {
+                    full_line = WString::from(utf32str!("lean ")) + file_name;
+                    self.autosuggestion.text = full_line.clone();
+                } else if file_name.ends_with(".mlw") {
+                    full_line = WString::from(utf32str!("why3 ide -L . ")) + file_name;
+                    self.autosuggestion.text = full_line.clone();
+                }
+            } else if item.str().starts_with("gcc ") {
+                full_line = WString::from(utf32str!("./a.out"));
+                self.autosuggestion.text = full_line.clone();
+            } else if item.str().starts_with("rustc ") {
+                let file_name = &item.str()[6..];
+                full_line = WString::from(utf32str!("./")) + &file_name[..file_name.len() - 3];
+                self.autosuggestion.text = full_line.clone();
+            }
+        }
 
         // Copy the colors and extend them with autosuggestion color.
         let mut colors = data.colors.clone();
