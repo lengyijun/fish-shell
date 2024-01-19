@@ -28,8 +28,10 @@ use std::io::BufReader;
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::ops::ControlFlow;
+use std::ops::Deref;
 use std::ops::Range;
 use std::os::fd::RawFd;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::rc::Rc;
 #[cfg(target_has_atomic = "64")]
@@ -1475,7 +1477,6 @@ impl<'a> Reader<'a> {
     /// `reason` is used in FLOG to explain why.
     fn paint_layout(&mut self, reason: &wstr, is_final_rendering: bool) {
         FLOGF!(reader_render, "Repainting from %ls", reason);
-        let data = &self.data.rendered_layout;
         let cmd_line = &self.data.command_line;
 
         let mut full_line = if self.conf.in_silent_mode {
@@ -1487,72 +1488,310 @@ impl<'a> Reader<'a> {
 
         if full_line.is_empty()
             && let Some(item) = self.history.item_at_index(1)
+            && let Some(args) =
+                shlex::split(&Into::<&[char]>::into(item.str()).iter().collect::<String>())
         {
-            if item.str().starts_with("mkdir ") {
-                full_line = WString::from(utf32str!("cd ")) + &item.str()[6..];
-                self.autosuggestion.text = full_line.clone();
-            } else if item.str().starts_with("cargo new ") {
-                full_line = WString::from(utf32str!("cd ")) + &item.str()[10..];
-                self.autosuggestion.text = full_line.clone();
-            } else if item.str().starts_with("git clone ") {
-                let x = item.str().replace(utf32str!("--depth=1"), utf32str!(""));
-                let x: String = Into::<&[char]>::into(x.trim()).iter().collect();
-                if let Some((_, y)) = x.rsplit_once(' ') {
-                    if y.starts_with("https://") {
-                        if let Some((_, z)) = y.rsplit_once('/') {
-                            full_line = WString::from(utf32str!("cd ")) + z;
-                            self.autosuggestion.text = full_line.clone();
-                        }
-                    } else if y.starts_with("git@") {
-                        if let Some((_, z)) = y.rsplit_once('/') {
-                            full_line = WString::from(utf32str!("cd ")) + &z[0..z.len() - 4];
-                            self.autosuggestion.text = full_line.clone();
-                        }
-                    } else {
-                        full_line = WString::from(utf32str!("cd ")) + y;
+            match &args[0] as &str {
+                "mkdir" => {
+                    if let Some(x) = args.iter().skip(1).last() {
+                        full_line = WString::from(format!("cd {x}"));
                         self.autosuggestion.text = full_line.clone();
-                    };
+                    }
                 }
-            } else if item.str().starts_with("git add ") {
-                full_line = WString::from(utf32str!("git commit"));
-                self.autosuggestion.text = full_line.clone();
-            } else if item.str().starts_with("touch ") {
-                full_line = WString::from(utf32str!("vi ")) + &item.str()[6..];
-                self.autosuggestion.text = full_line.clone();
-            } else if item.str().starts_with("vi ") {
-                let file_name = &item.str()[3..];
-                if file_name.ends_with(".rs") {
-                    full_line = WString::from(utf32str!("rustc ")) + file_name;
-                    self.autosuggestion.text = full_line.clone();
-                } else if file_name.ends_with(".lua") {
-                    full_line = WString::from(utf32str!("lua ")) + file_name;
-                    self.autosuggestion.text = full_line.clone();
-                } else if file_name.ends_with(".cpp") {
-                    full_line = WString::from(utf32str!("g++ ")) + file_name;
-                    self.autosuggestion.text = full_line.clone();
-                } else if file_name.ends_with(".c") {
-                    full_line = WString::from(utf32str!("gcc ")) + file_name;
-                    self.autosuggestion.text = full_line.clone();
-                } else if file_name.ends_with(".dot") {
-                    full_line = WString::from(utf32str!("tod ")) + file_name;
-                    self.autosuggestion.text = full_line.clone();
-                } else if file_name.ends_with(".lean") {
-                    full_line = WString::from(utf32str!("lean ")) + file_name;
-                    self.autosuggestion.text = full_line.clone();
-                } else if file_name.ends_with(".mlw") {
-                    full_line = WString::from(utf32str!("why3 ide -L . ")) + file_name;
+                "cargo" => {
+                    if let Some(sub_cmd) = args.get(1) {
+                        match &**sub_cmd {
+                            "new" => {
+                                let x =
+                                    shlex::try_join(args[2..].iter().map(|x| x as &str)).unwrap();
+                                full_line = WString::from(format!("cd {x}"));
+                                self.autosuggestion.text = full_line.clone();
+                            }
+                            "fmt" | "add" => {
+                                full_line = WString::from(format!("cargo b"));
+                                self.autosuggestion.text = full_line.clone();
+                            }
+                            "clone" => {
+                                let x =
+                                    shlex::try_join(args[2..].iter().map(|x| x as &str)).unwrap();
+                                full_line = WString::from(format!("cd {x}"));
+                                self.autosuggestion.text = full_line.clone();
+                            }
+                            "clean" => {
+                                full_line = WString::from(format!("cargo clippy"));
+                                self.autosuggestion.text = full_line.clone();
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "git" => {
+                    if args.len() >= 3 {
+                        match &args[1] as &str {
+                            "clone" => {
+                                let iter = args[2..].iter().filter(|x| !x.starts_with("--depth="));
+                                if let Some(y) = iter.last() {
+                                    if y.starts_with("https://") {
+                                        if let Some(z) =
+                                            y.rsplit(|c| c == '/').filter(|s| !s.is_empty()).next()
+                                        {
+                                            full_line = WString::from(utf32str!("cd ")) + z;
+                                            self.autosuggestion.text = full_line.clone();
+                                        }
+                                    } else if y.starts_with("git@") {
+                                        if let Some((_, z)) = y.rsplit_once('/') {
+                                            full_line = WString::from(utf32str!("cd "))
+                                                + &z[0..z.len() - 4];
+                                            self.autosuggestion.text = full_line.clone();
+                                        }
+                                    } else {
+                                        full_line = WString::from(format!("cd {y}"));
+                                        self.autosuggestion.text = full_line.clone();
+                                    };
+                                }
+                            }
+                            "add" => {
+                                full_line = WString::from(utf32str!("git commit"));
+                                self.autosuggestion.text = full_line.clone();
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "touch" => {
+                    let x = shlex::try_join(args[1..].iter().map(|x| x as &str)).unwrap();
+                    full_line = WString::from(format!("vi {x}"));
                     self.autosuggestion.text = full_line.clone();
                 }
-            } else if item.str().starts_with("gcc ") {
-                full_line = WString::from(utf32str!("./a.out"));
-                self.autosuggestion.text = full_line.clone();
-            } else if item.str().starts_with("rustc ") {
-                let file_name = &item.str()[6..];
-                full_line = WString::from(utf32str!("./")) + &file_name[..file_name.len() - 3];
-                self.autosuggestion.text = full_line.clone();
+                "gcc" => {
+                    full_line = WString::from(utf32str!("./a.out"));
+                    self.autosuggestion.text = full_line.clone();
+                }
+                "rustc" => {
+                    if let Some(file_name) =
+                        args[1..].iter().filter(|x| !x.starts_with("-Z")).next()
+                        && let p = Path::new(file_name)
+                        && let Some(prefix) = p.file_prefix()
+                    {
+                        full_line = WString::from(format!("./{:?}", prefix));
+                        self.autosuggestion.text = full_line.clone();
+                    }
+                }
+                "ghc" => {
+                    if let Some(file_name) = args[1..].iter().next()
+                        && let p = Path::new(file_name)
+                        && let Some(prefix) = p.file_prefix()
+                    {
+                        full_line = WString::from(format!("./{:?}", prefix));
+                        self.autosuggestion.text = full_line.clone();
+                    }
+                }
+                "vi" => {
+                    if let Some(file_name) = args.get(1) {
+                        if file_name == "Cargo.toml" {
+                            full_line = WString::from(format!("cargo build"));
+                            self.autosuggestion.text = full_line.clone();
+                        } else if let Some(extension) = Path::new(file_name)
+                            .extension()
+                            .and_then(|ext| ext.to_str())
+                        {
+                            match extension {
+                                "rs" => {
+                                    if file_name.contains("examples") {
+                                        full_line = WString::from(format!(
+                                            "cargo run --example {:?}",
+                                            Path::new(file_name).file_prefix().unwrap()
+                                        ));
+                                        self.autosuggestion.text = full_line.clone();
+                                    } else {
+                                        full_line = WString::from(format!("rustc {file_name}"));
+                                        self.autosuggestion.text = full_line.clone();
+                                    }
+                                }
+                                "lua" => {
+                                    full_line = WString::from(format!("lua {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "cpp" => {
+                                    full_line = WString::from(format!("g++ {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "c" => {
+                                    full_line = WString::from(format!("gcc {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "dot" => {
+                                    full_line = WString::from(format!("tod {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "lean" => {
+                                    full_line = WString::from(format!("lean {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "mlw" => {
+                                    full_line = WString::from(format!("why3 ide -L . {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "py" => {
+                                    full_line = WString::from(format!("python3 {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "hs" => {
+                                    full_line = WString::from(format!("ghc {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "kk" => {
+                                    if let Ok(x) = std::fs::read_to_string(file_name) {
+                                        if x.find("main").is_some() {
+                                            full_line = WString::from(format!(
+                                                "koka --execute {file_name}"
+                                            ));
+                                            self.autosuggestion.text = full_line.clone();
+                                        } else {
+                                            full_line = WString::from(format!(
+                                                "koka --compile -l {file_name}"
+                                            ));
+                                            self.autosuggestion.text = full_line.clone();
+                                        }
+                                    }
+                                }
+                                "nql" => {
+                                    full_line = WString::from(format!(
+                                        "python3 nqlaconic.py --run-tm {file_name}"
+                                    ));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "html" => {
+                                    full_line =
+                                        WString::from(format!("chromium-default.sh {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                "yaml" => {
+                                    full_line = WString::from(format!("judicious {file_name}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                "scp" => {
+                    if args.len() >= 3 {
+                        let is_dir = args[1] == "-r";
+                        let (from, to) = if is_dir {
+                            (&args[2], &args[3])
+                        } else {
+                            (&args[1], &args[2])
+                        };
+                        match (from.split_once(':'), to.split_once(':')) {
+                            (None, None) => {}
+                            (None, Some((host, _))) => {
+                                full_line = WString::from(format!("ssh {host}"));
+                                self.autosuggestion.text = full_line.clone();
+                            }
+                            (Some(_), None) => {
+                                let p = PathBuf::from(to);
+                                if p.is_dir() {
+                                    full_line = WString::from(format!("cd {to}"));
+                                    self.autosuggestion.text = full_line.clone();
+                                }
+                            }
+                            (Some(_), Some(_)) => {}
+                        }
+                    }
+                }
+                "cp" => {
+                    let mut iter = args[1..].iter().filter(|x| !x.starts_with('-'));
+                    if let Some(from) = iter.next()
+                        && let Some(to) = iter.next()
+                    {
+                        let from = PathBuf::from(from);
+                        let p = PathBuf::from(to).join(from.file_name().unwrap());
+                        if p.exists() {
+                            if p.is_dir() {
+                                full_line = WString::from(format!("cd {:?}", p));
+                                self.autosuggestion.text = full_line.clone();
+                            }
+                        } else {
+                            full_line = WString::from(format!("mkdir -p {to}"));
+                            self.autosuggestion.text = full_line.clone();
+                        }
+                    }
+                }
+                "cd" => {
+                    if let Some(target) = args.get(1) {
+                        let target = PathBuf::from(target);
+                        if !target.exists() {
+                            full_line = WString::from(format!("mkdir -p {:?}", target));
+                            self.autosuggestion.text = full_line.clone();
+                        }
+                    }
+                }
+                "lake" => {
+                    if let Some("new") = args.get(1).map(Deref::deref)
+                        && let Some(dir) = args.get(2)
+                    {
+                        full_line = WString::from(format!("cd {:?}", dir));
+                        self.autosuggestion.text = full_line.clone();
+                    }
+                }
+                "chezmoi" => {
+                    if let Some("add") = args.get(1).map(Deref::deref) {
+                        full_line = WString::from(format!("chezmoi cd"));
+                        self.autosuggestion.text = full_line.clone();
+                    }
+                }
+                "sd" => {
+                    if let Some(target) = args.get(1)
+                        && target == "review"
+                    {
+                        full_line =
+                            WString::from("sqlitebrowser ~/.local/share/dioxionary/dioxionary.db");
+                        self.autosuggestion.text = full_line.clone();
+                    }
+                }
+                "review" => {
+                    full_line = WString::from("sqlitebrowser ~/.goldendict/history.db");
+                    self.autosuggestion.text = full_line.clone();
+                }
+                "sqlitebrowser" => {
+                    if let Some(target) = args.get(1)
+                        && target == "~/.local/share/dioxionary/dioxionary.db"
+                    {
+                        full_line = WString::from("sd review");
+                        self.autosuggestion.text = full_line.clone();
+                    }
+                }
+                "cheat" => {
+                    if args.iter().any(|s| s == "-e") {
+                        full_line = WString::from("z cheat");
+                        self.autosuggestion.text = full_line.clone();
+                    }
+                }
+                "tldr" => {
+                    if args.iter().any(|s| s == "--edit-page") {
+                        if let Some(cmd) = args[1..].iter().find(|x| *x != "--edit-page") {
+                            full_line = WString::from(format!("tldr {cmd}"));
+                            self.autosuggestion.text = full_line.clone();
+                        }
+                    } else if args.iter().any(|s| s == "--edit-patch") {
+                        if let Some(cmd) = args[1..].iter().find(|x| *x != "--edit-patch") {
+                            full_line = WString::from(format!("tldr {cmd}"));
+                            self.autosuggestion.text = full_line.clone();
+                        }
+                    } else if args.iter().any(|s| s == "-e") {
+                        if let Some(cmd) = args[1..].iter().find(|x| *x != "-e") {
+                            full_line = WString::from(format!("tldr {cmd}"));
+                            self.autosuggestion.text = full_line.clone();
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
+        let data = &self.data.rendered_layout;
+        let cmd_line = &self.data.command_line;
         // Copy the colors and extend them with autosuggestion color.
         let mut colors = data.colors.clone();
 
