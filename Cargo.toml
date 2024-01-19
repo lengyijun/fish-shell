@@ -53,6 +53,7 @@ rand = { version = "0.8.5", default-features = false, features = ["small_rng"] }
 widestring = "1.1.0"
 # We need 0.9.0 specifically for some crash fixes.
 terminfo = "0.9.0"
+shlex = "1"
 
 [target.'cfg(not(target_has_atomic = "64"))'.dependencies]
 portable-atomic = { version = "1", default-features = false, features = [
