@@ -30,6 +30,7 @@ pub const BUILD_VERSION: &str = env!("FISH_BUILD_VERSION");
 pub mod common;
 
 pub mod abbrs;
+mod arg_parse;
 pub mod ast;
 pub mod autoload;
 pub mod builtins;

@@ -21,6 +21,7 @@ use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use once_cell::sync::Lazy;
 use std::cell::UnsafeCell;
+use std::ffi::OsStr;
 use std::io::BufReader;
 use std::num::NonZeroUsize;
 use std::ops::Range;
@@ -37,6 +38,7 @@ use widestring::utf32str;
 use errno::{errno, Errno};
 
 use crate::abbrs::abbrs_match;
+use crate::arg_parse::riscv64_linux_gnu_gcc::Riscv64LinuxGnuGcc;
 use crate::ast::{self, Ast, Category, Traversal};
 use crate::builtins::shared::STATUS_CMD_OK;
 use crate::color::RgbColor;
@@ -115,7 +117,7 @@ use crate::wcstringutil::{
 };
 use crate::wildcard::wildcard_has;
 use crate::wutil::{perror, write_to_fd};
-use crate::{abbrs, event, function, history};
+use crate::{abbrs, arg_parse, event, function, history};
 
 /// A description of where fish is in the process of exiting.
 #[repr(u8)]
@@ -1522,6 +1524,24 @@ echo $status"));
                             WString::from("sqlitebrowser ~/.local/share/dioxionary/dioxionary.db");
                         self.autosuggestion.text = full_line.clone();
                     }
+                }
+                "riscv64-linux-gnu-gcc" => {
+                    if let Ok( Riscv64LinuxGnuGcc{ input, output }) = arg_parse::riscv64_linux_gnu_gcc::parse(args[1..].iter().map(AsRef::as_ref)) {
+                        let output_path = Path::new(output);
+                        match output_path.extension().and_then(OsStr::to_str) {
+                            Some("S") => {
+                                full_line = WString::from(format!("riscv64-linux-gnu-gcc -static {output} -o {:?}", output_path.with_extension("")));
+                                self.autosuggestion.text = full_line.clone();
+                            }
+                            None => {
+                                full_line = WString::from(format!("qemu-riscv64-static {output}"));
+                                self.autosuggestion.text = full_line.clone();
+                            }
+                            _ => {}
+                        }
+
+                    }
+
                 }
                 _ => {}
             }
