@@ -1545,6 +1545,27 @@ echo $status"));
                 }
                 _ => {}
             }
+
+            if full_line.is_empty(){
+                if let Some(dot_S) = args.last(){
+                    let output_path = Path::new(dot_S);
+                    if dot_S.ends_with(".S") {
+                        let a_out = output_path.with_extension("");
+                        let a_out = a_out.display();
+                        full_line = WString::from(format!(
+"
+# Link to an RISC-V executable
+riscv64-linux-gnu-gcc -static {dot_S} -o {a_out}
+
+# Emulate the executable
+qemu-riscv64-static {a_out}
+
+echo $status"));
+                        self.autosuggestion.text = full_line.clone();
+                    }
+                }
+            }
+            
         }
 
         // Copy the colors and extend them with autosuggestion color.
