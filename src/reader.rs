@@ -1409,7 +1409,24 @@ impl ReaderData {
                                 self.autosuggestion.text = full_line.clone();
                             }
                             "c" => {
-                                full_line = WString::from(format!("gcc {file_name}"));
+                                let dot_c = Path::new(file_name);
+                                let dot_S = dot_c.with_extension("S");
+                                let a_out = dot_c.with_extension("");
+
+                                let dot_c = dot_c.display();
+                                let dot_S = dot_S.display();
+                                let a_out = a_out.display();
+                                full_line = WString::from(format!("
+# Compile C source code into RISC-V assembly
+riscv64-linux-gnu-gcc {dot_c} -S -fsigned-char -o {dot_S}
+
+# Link to an RISC-V executable
+riscv64-linux-gnu-gcc -static {dot_S} -o {a_out}
+
+# Emulate the executable
+qemu-riscv64-static {a_out}
+
+echo $status"));
                                 self.autosuggestion.text = full_line.clone();
                             }
                             "dot" => {
