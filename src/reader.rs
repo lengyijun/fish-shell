@@ -1543,6 +1543,15 @@ echo $status"));
                     }
 
                 }
+                "make" => {
+                    if let Some(target) = args.get(1)
+                        && target == "clean"
+                    {
+                        full_line = WString::from("make run");
+                        self.autosuggestion.text = full_line.clone();
+                    }
+
+                }
                 _ => {}
             }
 
@@ -1565,7 +1574,7 @@ echo $status"));
                     }
                 }
             }
-            
+
         }
 
         // Copy the colors and extend them with autosuggestion color.
