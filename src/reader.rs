@@ -1790,6 +1790,21 @@ impl<'a> Reader<'a> {
             }
         }
 
+        if full_line.is_empty()
+            && let Some(item) = self.history.item_at_index(1)
+            && let Some(args) =
+                shlex::split(&Into::<&[char]>::into(item.str()).iter().collect::<String>())
+            && let Some(target) = args.last()
+            && target != "."
+            && !target.ends_with(".mp4")
+        {
+            let target = PathBuf::from(target);
+            if target.exists() {
+                full_line = WString::from(format!("vi {:?}", target));
+                self.autosuggestion.text = full_line.clone();
+            }
+        }
+
         let data = &self.data.rendered_layout;
         let cmd_line = &self.data.command_line;
         // Copy the colors and extend them with autosuggestion color.
