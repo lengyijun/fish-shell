@@ -183,7 +183,15 @@ impl EditableLine {
                 .truncate(self.undo_history.edits_applied);
         }
         edit.cursor_position_before_edit = self.pending_position.take().unwrap_or(self.position());
-        edit.old = self.text[range.clone()].to_owned();
+        edit.old = if self.text.is_empty() {
+            self.text.to_owned()
+        } else {
+            self.text[range.clone()].to_owned()
+        };
+        if self.text.is_empty() {
+            edit.range = 0..0;
+        }
+
         apply_edit(&mut self.text, &mut self.colors, &edit);
         self.set_position(cursor_position_after_edit(&edit));
         assert_eq!(
