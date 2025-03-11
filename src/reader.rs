@@ -2692,7 +2692,7 @@ impl<'a> Reader<'a> {
                             parse_color(&fish_color_cancel, true),
                         );
                     }
-                    outp.write_wstr(L!("^C"));
+                    // outp.write_wstr(L!("^C"));
                     outp.set_color(RgbColor::RESET, RgbColor::RESET);
 
                     // We print a newline last so the prompt_sp hack doesn't get us.
