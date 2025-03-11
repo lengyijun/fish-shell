@@ -3101,7 +3101,7 @@ impl<'a> Reader<'a> {
                             parse_text_face_for_highlight(&fish_color_cancel).unwrap_or_default(),
                         );
                     }
-                    outp.write_wstr(L!("^C"));
+                    // outp.write_wstr(L!("^C"));
                     outp.reset_text_face();
 
                     // We print a newline last so the prompt_sp hack doesn't get us.
