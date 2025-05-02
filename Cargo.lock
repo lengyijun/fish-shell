@@ -119,7 +119,6 @@ dependencies = [
  "rsconf",
  "rust-embed",
  "serial_test",
- "shlex",
  "terminfo",
  "unix_path",
  "widestring",
