@@ -3731,7 +3731,7 @@ impl<'a> Reader<'a> {
             rl::ForwardChar | rl::ForwardSingleChar => {
                 if self.is_navigating_pager_contents() {
                     self.select_completion_in_direction(SelectionMotion::East, false);
-                } else if self.is_at_autosuggestion() {
+                } else if self.is_at_end() {
                     self.accept_autosuggestion(AutosuggestionPortion::Count(
                         if c == rl::ForwardSingleChar {
                             1
@@ -3742,14 +3742,6 @@ impl<'a> Reader<'a> {
                 } else if !self.is_at_end() {
                     let (elt, el) = self.active_edit_line();
                     self.update_buff_pos(elt, Some(el.position() + 1));
-                } else {
-                    self.accept_autosuggestion(AutosuggestionPortion::Count(
-                        if c == rl::ForwardSingleChar {
-                            1
-                        } else {
-                            usize::MAX
-                        },
-                    ));
                 }
             }
             rl::ForwardCharPassive => {
