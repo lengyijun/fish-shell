@@ -2518,7 +2518,6 @@ impl ReaderData {
             return false;
         }
 
-        /*
         // Check to see if our autosuggestion still applies; if so, don't recompute it.
         // Since the autosuggestion computation is asynchronous, this avoids "flashing" as you type into
         // the autosuggestion.
@@ -2529,7 +2528,6 @@ impl ReaderData {
             &self.command_line.text()[autosuggestion.search_string_range.clone()],
             &autosuggestion.text
         ));
-         */
         let search_string_range = autosuggestion.search_string_range.clone();
 
         // This is a heuristic with false negatives but that seems fine.
