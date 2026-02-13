@@ -4061,7 +4061,7 @@ impl<'a> Reader<'a> {
             rl::ForwardChar | rl::ForwardSingleChar => {
                 if self.is_navigating_pager_contents() {
                     self.select_completion_in_direction(SelectionMotion::East, false);
-                } else if self.is_at_end() {
+                } else if self.is_at_autosuggestion() {
                     self.accept_autosuggestion(AutosuggestionPortion::Count(
                         if c == rl::ForwardSingleChar {
                             1
