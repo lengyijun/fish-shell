@@ -49,6 +49,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use errno::{errno, Errno};
+use is_executable::IsExecutable;
 
 use crate::abbrs::abbrs_match;
 use crate::ast::{self, is_same_node, Kind};
@@ -2113,6 +2114,10 @@ impl<'a> Reader<'a> {
                     if let Some(file_path) = args.get(1) {
                         if file_path.ends_with(".pdf") {
                             full_line = WString::from(format!("bing.sh {file_path}")).into();
+                            self.autosuggestion.text = full_line.clone().into();
+                            self.autosuggestion.search_string_range = 0..0;
+                        } else if PathBuf::from(file_path).is_executable() {
+                            full_line = WString::from(format!("./{file_path}")).into();
                             self.autosuggestion.text = full_line.clone().into();
                             self.autosuggestion.search_string_range = 0..0;
                         }

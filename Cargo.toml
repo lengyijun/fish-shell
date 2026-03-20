@@ -84,6 +84,7 @@ fish-build-man-pages = { workspace = true, optional = true }
 fish-gettext-extraction = { workspace = true, optional = true }
 fish-gettext-maps = { workspace = true, optional = true }
 fish-printf.workspace = true
+is_executable = "1.0.5"
 libc.workspace = true
 lru.workspace = true
 macro_rules_attribute = "0.2.2"
