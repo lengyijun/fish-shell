@@ -74,6 +74,7 @@ use crate::{
         lineno, locate_cmdsubst_range,
     },
     parser::{BlockType, EvalRes, Parser, ParserEnvSetMode},
+    path::{path_get_cdpath, paths_are_same_file},
     portable_atomic::AtomicU64,
     prelude::*,
     proc::{
@@ -123,7 +124,8 @@ use fish_wcstringutil::{
     join_strings, string_prefixes_string, string_prefixes_string_case_insensitive,
     string_prefixes_string_maybe_case_insensitive,
 };
-use fish_widestring::{ELLIPSIS_CHAR, UTF8_BOM_WCHAR, bytes2wcstring};
+use fish_widestring::{ELLIPSIS_CHAR, UTF8_BOM_WCHAR, bytes2wcstring, str2wcstring};
+use is_executable::IsExecutable as _;
 use libc::{
     _POSIX_VDISABLE, SIGINT, STDIN_FILENO, STDOUT_FILENO, VMIN, VQUIT, VSUSP, VTIME, c_char,
 };
@@ -145,11 +147,12 @@ use std::{
     borrow::Cow,
     cell::{LazyCell, UnsafeCell},
     cmp,
-    ffi::CStr,
+    ffi::{CStr, OsStr},
     io::BufReader,
     num::NonZeroUsize,
     ops::{ControlFlow, DerefMut, Range},
     os::fd::{AsRawFd as _, BorrowedFd, RawFd},
+    path::{Path, PathBuf},
     pin::Pin,
     sync::{
         Arc, LazyLock, Mutex, MutexGuard, OnceLock,
@@ -2040,6 +2043,13 @@ fn try_apply_edit_to_autosuggestion(
     edit: &Edit,
 ) -> bool {
     if autosuggestion.is_empty() {
+        return false;
+    }
+
+    // A suggestion with an empty search range (e.g. a follow-up command suggested on an
+    // empty command line) must not be extended as the user types; once there is typed
+    // text, the normal autosuggestion computation takes over.
+    if autosuggestion.search_string_range.is_empty() {
         return false;
     }
 
@@ -5314,6 +5324,400 @@ impl AutosuggestionResult {
     }
 }
 
+/// Suggest a follow-up command based on the most recently executed command
+/// (e.g. `cd foo` after `mkdir foo`).
+/// Only valid when the command line is empty (i.e. a fresh prompt).
+/// Returns `None` if there is no such suggestion to offer.
+fn suggest_followup_after_last_command(
+    history: &History,
+    working_directory: &wstr,
+    ctx: &mut OperationContext<'_>,
+) -> Option<WString> {
+    // The most recently completed command (index 0 is the current, in-flight command line).
+    let item = history.item_at_index(1)?;
+    let args = shlex::split(&item.str().to_string())?;
+    let first = args.first()?;
+    let mut suggested: Option<String> = None;
+    match first.as_str() {
+        "mkdir" => {
+            // Last non-flag argument, so `mkdir -p foo` suggests `cd foo`.
+            if let Some(dir) = args.iter().skip(1).rev().find(|a| !a.starts_with('-')) {
+                // Only suggest directories that exist and differ from the current directory.
+                if let Some(path) =
+                    path_get_cdpath(&str2wcstring(dir), working_directory, ctx.vars())
+                {
+                    if !paths_are_same_file(working_directory, &path) {
+                        suggested = shlex::try_join([dir.as_str()])
+                            .ok()
+                            .map(|x| format!("cd {x}"));
+                    }
+                }
+            }
+        }
+        "rustfmt" => {
+            if let Some(file_name) = args[1..].iter().find(|x| x.ends_with(".rs")) {
+                suggested = Some(format!("rustc {file_name}"));
+            }
+        }
+        "rustc" => {
+            if let Some(file_name) = args[1..].iter().find(|x| x.ends_with(".rs")) {
+                let p = Path::new(file_name.as_str());
+                if let Some(prefix) = p.file_stem() {
+                    let mut iter = args[1..].iter().skip_while(|x| x.as_str() != "--emit");
+                    iter.next();
+                    match iter.next().map(String::as_str) {
+                        Some("mir") => {
+                            suggested = Some(format!("vi {:?}", p.with_extension("mir")));
+                        }
+                        _ => {
+                            suggested = Some(format!("./{prefix:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        "cargo" => {
+            if let Some(sub_cmd) = args.get(1) {
+                match sub_cmd.as_str() {
+                    "new" => {
+                        if let Ok(x) = shlex::try_join(args[2..].iter().map(|x| x.as_str())) {
+                            suggested = Some(format!("cd {x}"));
+                        }
+                    }
+                    "fmt" | "add" | "fix" => {
+                        suggested = Some("cargo b".to_owned());
+                    }
+                    "clone" => {
+                        if let Ok(x) = shlex::try_join(args[2..].iter().map(|x| x.as_str())) {
+                            suggested = Some(format!("cd {x}"));
+                        }
+                    }
+                    "clean" => {
+                        suggested = Some("cargo clippy".to_owned());
+                    }
+                    "build" | "b" | "run" | "r" => {
+                        suggested = Some("cargo fmt".to_owned());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        "git" => {
+            if args.len() >= 3 {
+                if let Some(sub) = args.get(1) {
+                    match sub.as_str() {
+                        "clone" => {
+                            let mut iter = args[2..].iter().filter(|x| !x.starts_with("--depth="));
+                            if let Some(y) = iter.next_back() {
+                                if y.starts_with("https://") {
+                                    if let Some(z) = y.rsplit('/').find(|s| !s.is_empty()) {
+                                        suggested = Some(format!("cd {z}"));
+                                    }
+                                } else if y.starts_with("git@") {
+                                    if let Some((_, z)) = y.rsplit_once('/') {
+                                        suggested =
+                                            Some(format!("cd {}", &z[..z.len().saturating_sub(4)]));
+                                    }
+                                } else {
+                                    suggested = Some(format!("cd {y}"));
+                                }
+                            }
+                        }
+                        "add" => {
+                            suggested = Some("git commit".to_owned());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        "touch" => {
+            if let Ok(x) = shlex::try_join(args[1..].iter().map(|x| x.as_str())) {
+                suggested = Some(format!("vi {x}"));
+            }
+        }
+        "gcc" | "g++" => {
+            suggested = Some("./a.out".to_owned());
+        }
+        "ghc" => {
+            if let Some(file_name) = args.get(1) {
+                let p = Path::new(file_name.as_str());
+                if let Some(prefix) = p.file_stem() {
+                    suggested = Some(format!("./{prefix:?}"));
+                }
+            }
+        }
+        "vi" => {
+            if let Some(file_path) = args.get(1) {
+                if file_path == "Cargo.toml" {
+                    suggested = Some("cargo build".to_owned());
+                } else {
+                    let path = Path::new(file_path.as_str());
+                    if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
+                        match extension {
+                            "rs" => {
+                                let file_name = path.file_name();
+                                if file_name == Some(OsStr::new("main.rs"))
+                                    || file_name == Some(OsStr::new("lib.rs"))
+                                {
+                                    suggested = Some("cargo build".to_owned());
+                                } else if file_path.contains("bin/") {
+                                    if let Some(stem) = path.file_stem() {
+                                        suggested = Some(format!("cargo run --bin {stem:?}"));
+                                    }
+                                } else if file_path.contains("src/") {
+                                    suggested = Some("cargo build".to_owned());
+                                } else if file_path.contains("examples") {
+                                    if let Some(x) = path.file_stem() {
+                                        suggested = Some(format!("cargo run --example {x:?}"));
+                                    }
+                                } else {
+                                    suggested = Some(format!("rustc {file_path}"));
+                                }
+                            }
+                            "lua" => {
+                                suggested = Some(format!("lua {file_path}"));
+                            }
+                            "sh" => {
+                                suggested = Some(format!("bash {file_path}"));
+                            }
+                            "cpp" => {
+                                suggested = Some(format!("g++ {file_path}"));
+                            }
+                            "c" => {
+                                suggested = Some(format!("gcc {file_path}"));
+                            }
+                            "v" => {
+                                suggested = Some(format!("coqc {file_path}"));
+                            }
+                            "dot" => {
+                                suggested = Some(format!("tod {file_path}"));
+                            }
+                            "ml" => {
+                                suggested = Some(format!("ocaml {file_path}"));
+                            }
+                            "agda" => {
+                                suggested = Some(format!("agda {file_path}"));
+                            }
+                            "lean" => {
+                                suggested = Some(format!("lean {file_path}"));
+                            }
+                            "mlw" => {
+                                suggested = Some(format!("why3 ide -L . {file_path}"));
+                            }
+                            "py" => {
+                                suggested = Some(format!("python3 {file_path}"));
+                            }
+                            "hs" => {
+                                suggested = Some(format!("ghc {file_path}"));
+                            }
+                            "kk" => {
+                                if let Ok(x) = std::fs::read_to_string(file_path.as_str()) {
+                                    if x.find("main").is_some() {
+                                        suggested = Some(format!("koka --execute {file_path}"));
+                                    } else {
+                                        suggested = Some(format!("koka --compile -l {file_path}"));
+                                    }
+                                }
+                            }
+                            "nql" => {
+                                suggested =
+                                    Some(format!("python3 nqlaconic.py --run-tm {file_path}"));
+                            }
+                            "html" => {
+                                suggested = Some(format!("chromium-default.sh {file_path}"));
+                            }
+                            "yaml" => {
+                                suggested = Some(format!("judicious {file_path}"));
+                            }
+                            "tex" => {
+                                suggested = Some(format!("xelatex {file_path}"));
+                            }
+                            "m" => {
+                                // https://mercurylang.org
+                                if let Some(prefix) = path.file_stem() {
+                                    suggested = Some(format!("mmc --make {prefix:?}"));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        "make" => {
+            if let Some(file_path) = args.get(1) {
+                if file_path.ends_with(".pdf") {
+                    suggested = Some(format!("bing.sh {file_path}"));
+                } else if PathBuf::from(file_path.as_str()).is_executable() {
+                    suggested = Some(format!("./{file_path}"));
+                }
+            }
+        }
+        "scp" => {
+            let is_dir = args.get(1).is_some_and(|a| a == "-r");
+            let pair = if is_dir {
+                match (args.get(2), args.get(3)) {
+                    (Some(from), Some(to)) => Some((from, to)),
+                    _ => None,
+                }
+            } else {
+                match (args.get(1), args.get(2)) {
+                    (Some(from), Some(to)) => Some((from, to)),
+                    _ => None,
+                }
+            };
+            if let Some((from, to)) = pair {
+                match (from.split_once(':'), to.split_once(':')) {
+                    (None, None) => {}
+                    (None, Some((host, _))) => {
+                        suggested = Some(format!("ssh {host}"));
+                    }
+                    (Some(_), None) => {
+                        let p = PathBuf::from(to.as_str());
+                        if p.is_dir() {
+                            suggested = Some(format!("cd {to}"));
+                        }
+                    }
+                    (Some(_), Some(_)) => {}
+                }
+            }
+        }
+        "ssh-copy-id" => {
+            if let Some(host) = args.get(1) {
+                suggested = Some(format!("ssh {host}"));
+            }
+        }
+        "cp" => {
+            let mut iter = args[1..].iter().filter(|x| !x.starts_with('-'));
+            if let Some(from) = iter.next() {
+                if let Some(to) = iter.next() {
+                    let from_path = PathBuf::from(from.as_str());
+                    if let Some(file_name) = from_path.file_name() {
+                        let p = PathBuf::from(to.as_str()).join(file_name);
+                        if p.exists() {
+                            if p.is_dir() {
+                                suggested = Some(format!("cd {p:?}"));
+                            }
+                        } else {
+                            suggested = Some(format!("mkdir -p {to}"));
+                        }
+                    }
+                }
+            }
+        }
+        "cd" => {
+            if let Some(target) = args.get(1) {
+                let target_path = PathBuf::from(target.as_str());
+                if !target_path.exists() {
+                    suggested = Some(format!("mkdir -p {target:?}"));
+                }
+            }
+        }
+        "lake" => {
+            if let Some(sub_cmd) = args.get(1).map(String::as_str) {
+                match sub_cmd {
+                    "new" => {
+                        if let Some(dir) = args.get(2) {
+                            suggested = Some(format!("cd {dir:?}"));
+                        }
+                    }
+                    "update" => {
+                        suggested = Some("lake build".to_owned());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        "chezmoi" => {
+            if args.get(1).is_some_and(|s| s == "add") {
+                suggested = Some("chezmoi cd".to_owned());
+            }
+        }
+        "sd" => {
+            if args.get(1).is_some_and(|s| s == "review") {
+                suggested =
+                    Some("sqlitebrowser ~/.local/share/dioxionary/dioxionary.db".to_owned());
+            }
+        }
+        "review" => {
+            suggested = Some("sqlitebrowser ~/.local/share/goldendict/history.db".to_owned());
+        }
+        "sqlitebrowser" => {
+            if args
+                .get(1)
+                .is_some_and(|s| s == "~/.local/share/dioxionary/dioxionary.db")
+            {
+                suggested = Some("sd review".to_owned());
+            }
+        }
+        "cheat" => {
+            if args.iter().any(|s| s == "-e") {
+                suggested = Some("z cheat".to_owned());
+            } else if let Some(x) = args.get(1) {
+                suggested = Some(format!("cheat -e {x}"));
+            }
+        }
+        "tldr" => {
+            if args.iter().any(|s| s == "--edit-page") {
+                if let Some(cmd) = args[1..].iter().find(|x| *x != "--edit-page") {
+                    suggested = Some(format!("tldr {cmd}"));
+                }
+            } else if args.iter().any(|s| s == "--edit-patch") {
+                if let Some(cmd) = args[1..].iter().find(|x| *x != "--edit-patch") {
+                    suggested = Some(format!("tldr {cmd}"));
+                }
+            } else if args.iter().any(|s| s == "-e") {
+                let cmd = args
+                    .iter()
+                    .filter(|x| *x != "-e")
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                suggested = Some(cmd);
+            } else {
+                suggested = Some(format!("{} -e", item.str()));
+            }
+        }
+        "dtrx" => {
+            if let Some(x) = args.get(1) {
+                let p = Path::new(x.as_str());
+                if let Some(y) = p.file_stem() {
+                    suggested = Some(format!("cd {y:?}"));
+                }
+            }
+        }
+        "mmc" => {
+            if args.get(1).is_some_and(|s| s == "--make") {
+                if let Some(target) = args.get(2) {
+                    suggested = Some(format!("./{target}"));
+                }
+            }
+        }
+        "xelatex" => {
+            if let Some(file_name) = args.get(1) {
+                let p = Path::new(file_name.as_str());
+                let p = p.with_extension("pdf");
+                suggested = Some(format!("bing.sh {p:?}"));
+            }
+        }
+        _ => {}
+    }
+    if suggested.is_none() {
+        if let Some(target) = args.last() {
+            if !target.ends_with(".mp4") && !target.ends_with(".pdf") {
+                let target_path = PathBuf::from(target.as_str());
+                if target_path.is_file() {
+                    suggested = Some(format!("vi {target:?}"));
+                } else if target_path.is_dir() {
+                    suggested = Some(format!("cd {target:?}"));
+                }
+            }
+        }
+    }
+    suggested.map(str2wcstring)
+}
+
 // Returns a function that can be invoked (potentially
 // on a background thread) to determine the autosuggestion
 fn get_autosuggestion_performer(
@@ -5337,6 +5741,27 @@ fn get_autosuggestion_performer(
         let mut icase_history_result = None;
 
         let line_range = range_of_line_at_cursor(&command_line, cursor_pos);
+
+        // If the command line is empty (i.e. a fresh prompt), offer a follow-up
+        // command based on the most recent command (e.g. after `mkdir foo`,
+        // suggest `cd foo`).
+        if command_line
+            .chars()
+            .all(|c| matches!(c, ' ' | '\t' | '\r' | '\n' | '\x0B'))
+        {
+            if let Some(suggestion) =
+                suggest_followup_after_last_command(&history, &working_directory, ctx)
+            {
+                return AutosuggestionResult::new(
+                    command_line,
+                    0..0,
+                    suggestion,
+                    /*icase_matched_codepoints=*/ None,
+                    /*is_whole_item_from_history=*/ false,
+                );
+            }
+        }
+
         // Search history for a matching item unless this line is not a continuation line or quoted.
         for (search_type, range) in [
             (SearchType::Prefix, 0..command_line.len()),
@@ -5532,17 +5957,20 @@ enum AutosuggestionPortion {
 
 impl<'a> Reader<'a> {
     fn can_autosuggest(&self) -> bool {
-        // We autosuggest if suppress_autosuggestion is not set, if we're not doing a history search,
-        // and our command line contains a non-whitespace character.
+        // We autosuggest if suppress_autosuggestion is not set and we're not doing a history
+        // search. Normally the command line must contain a non-whitespace character, but an empty
+        // line is also allowed so we can offer a follow-up command based on the previous
+        // command (e.g. after `mkdir foo`, suggest `cd foo`).
         let (elt, el) = self.active_edit_line();
         self.conf.autosuggest_ok
             && !self.suppress_autosuggestion
             && self.history_search.is_at_present()
             && elt == EditableLineTag::Commandline
-            && el
-                .text()
-                .chars()
-                .any(|c| !matches!(c, ' ' | '\t' | '\r' | '\n' | '\x0B'))
+            && (el.text().is_empty()
+                || el
+                    .text()
+                    .chars()
+                    .any(|c| !matches!(c, ' ' | '\t' | '\r' | '\n' | '\x0B')))
     }
 
     // Called after an autosuggestion has been computed on a background thread.
@@ -5553,6 +5981,16 @@ impl<'a> Reader<'a> {
         }
         if result.command_line != self.command_line.text() {
             // This autosuggestion is stale.
+            return;
+        }
+        // A suggestion computed for an empty command line (e.g. "cd" into a directory created by
+        // the previous command) is only valid while the line is still empty. Once the user has
+        // started typing, drop it so it cannot be mistakenly accepted or block normal suggestions.
+        let is_all_ws = |s: &wstr| {
+            s.chars()
+                .all(|c| matches!(c, ' ' | '\t' | '\r' | '\n' | '\x0B'))
+        };
+        if is_all_ws(&result.command_line) && !is_all_ws(self.command_line.text()) {
             return;
         }
         // Maybe load completions for commands discovered by this autosuggestion.
@@ -5607,7 +6045,9 @@ impl<'a> Reader<'a> {
         }
 
         // Do nothing if we've already kicked off this autosuggest request.
-        if el.text() == self.in_flight_autosuggest_request {
+        // An empty command line is a special case: we want to compute the "cd into created
+        // directory" suggestion, so don't skip it even though the previous request was empty.
+        if !el.text().is_empty() && el.text() == self.in_flight_autosuggest_request {
             return;
         }
         self.data.in_flight_autosuggest_request = el.text().to_owned();
