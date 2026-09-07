@@ -3121,7 +3121,7 @@ impl<'a> Reader<'a> {
                                 .unwrap_or(TextFace::terminal_default()),
                         );
                     }
-                    outp.write_wstr(L!("^C"));
+                    // outp.write_wstr(L!("^C"));
                     outp.reset_text_face();
 
                     // We print a newline last so the prompt_sp hack doesn't get us.
