@@ -5343,13 +5343,12 @@ fn suggest_followup_after_last_command(
             // Last non-flag argument, so `mkdir -p foo` suggests `cd foo`.
             if let Some(dir) = args.iter().skip(1).rev().find(|a| !a.starts_with('-')) {
                 // Only suggest directories that exist and differ from the current directory.
-                if let Some(path) =
-                    path_get_cdpath(&str2wcstring(dir), working_directory, ctx.vars())
+                let mut dir_expanded = str2wcstring(dir);
+                expand_tilde(&mut dir_expanded, ctx.vars());
+                if let Some(path) = path_get_cdpath(&dir_expanded, working_directory, ctx.vars())
                 {
                     if !paths_are_same_file(working_directory, &path) {
-                        suggested = shlex::try_join([dir.as_str()])
-                            .ok()
-                            .map(|x| format!("cd {x}"));
+                        suggested = Some(format!("cd {dir}"));
                     }
                 }
             }
